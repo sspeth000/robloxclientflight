@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -11,11 +12,14 @@ local PLATFORM_OFFSET = 3.5
 local FLIGHT_SPEED_MULTIPLIER = 10
 local R15_CLEARANCE = 0.1
 
+-- Session settings (preserved across character respawns)
 local moveSpeed = 20
 local playerSpeed = 16
 local direction = 0
 local flying = true
 local noclipEnabled = false
+local speedPersistEnabled = false
+local minimized = false
 
 local character
 local rootPart
@@ -50,11 +54,12 @@ gui.Parent = playerGui
 
 local frame = Instance.new("Frame")
 frame.Name = "Panel"
-frame.Size = UDim2.fromOffset(190, 362)
-frame.Position = UDim2.new(0.5, -95, 0.5, -181)
+frame.Size = UDim2.fromOffset(190, 418)
+frame.Position = UDim2.new(0.5, -95, 0.5, -209)
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
 frame.BorderSizePixel = 0
 frame.Active = true
+frame.ClipsDescendants = true
 frame.Parent = gui
 
 local frameCorner = Instance.new("UICorner")
@@ -67,6 +72,55 @@ frameStroke.Thickness = 1
 frameStroke.Transparency = 0.35
 frameStroke.Parent = frame
 
+-- Title bar
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 28)
+titleBar.BackgroundColor3 = Color3.fromRGB(38, 42, 54)
+titleBar.BorderSizePixel = 0
+titleBar.Active = true
+titleBar.ZIndex = 2
+titleBar.Parent = frame
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "Title"
+titleLabel.Position = UDim2.fromOffset(10, 0)
+titleLabel.Size = UDim2.new(1, -48, 1, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "Flight Controller"
+titleLabel.TextColor3 = Color3.fromRGB(160, 195, 255)
+titleLabel.TextSize = 15
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.ZIndex = 3
+titleLabel.Parent = titleBar
+
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Name = "MinimizeButton"
+minimizeButton.Size = UDim2.fromOffset(28, 24)
+minimizeButton.Position = UDim2.new(1, -30, 0, 2)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(67, 105, 170)
+minimizeButton.TextColor3 = Color3.new(1, 1, 1)
+minimizeButton.Text = "-"
+minimizeButton.TextSize = 22
+minimizeButton.Font = Enum.Font.SourceSansBold
+minimizeButton.BorderSizePixel = 0
+minimizeButton.ZIndex = 3
+minimizeButton.Parent = titleBar
+
+local minimizeCorner = Instance.new("UICorner")
+minimizeCorner.CornerRadius = UDim.new(0, 5)
+minimizeCorner.Parent = minimizeButton
+
+-- Content
+local content = Instance.new("Frame")
+content.Name = "Content"
+content.Position = UDim2.fromOffset(0, 28)
+content.Size = UDim2.new(1, 0, 1, -28)
+content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.Parent = frame
+
 local function makeDivider(text, y)
 	local divider = Instance.new("Frame")
 	divider.Name = text .. "Divider"
@@ -74,7 +128,7 @@ local function makeDivider(text, y)
 	divider.Size = UDim2.fromOffset(166, 22)
 	divider.BackgroundTransparency = 1
 	divider.BorderSizePixel = 0
-	divider.Parent = frame
+	divider.Parent = content
 
 	local label = Instance.new("TextLabel")
 	label.Name = "SectionTitle"
@@ -116,7 +170,7 @@ local function makeButton(name, text, position, size)
 	button.TextWrapped = true
 	button.BorderSizePixel = 0
 	button.Active = true
-	button.Parent = frame
+	button.Parent = content
 
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 5)
@@ -137,7 +191,7 @@ local function makeTextBox(name, placeholder, text, position)
 	box.TextSize = 14
 	box.ClearTextOnFocus = false
 	box.BorderSizePixel = 0
-	box.Parent = frame
+	box.Parent = content
 
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 5)
@@ -197,13 +251,20 @@ local playerSpeedApplyButton = makeButton(
 	UDim2.fromOffset(166, 23)
 )
 
+local speedPersistButton = makeButton(
+	"SpeedPersistButton",
+	"Persist Speed: OFF",
+	UDim2.fromOffset(12, 265),
+	UDim2.fromOffset(166, 26)
+)
+
 -- Noclip
-local noclipDivider = makeDivider("Noclip", 267)
+local noclipDivider = makeDivider("Noclip", 296)
 
 local noclipButton = makeButton(
 	"NoclipButton",
 	"Noclip: OFF",
-	UDim2.fromOffset(12, 292),
+	UDim2.fromOffset(12, 321),
 	UDim2.fromOffset(166, 26)
 )
 
@@ -211,16 +272,26 @@ local noclipButton = makeButton(
 local flyButton = makeButton(
 	"FlyButton",
 	"Unfly",
-	UDim2.fromOffset(12, 326),
+	UDim2.fromOffset(12, 355),
 	UDim2.fromOffset(166, 26)
 )
 
--- Automatically resize the panel based on platform existence
+-- GUI layout
 local function updatePanelLayout()
 	local hasPlatform = platform ~= nil and platform.Parent ~= nil
 
+	content.Visible = not minimized
+
+	if minimized then
+		frame.Size = UDim2.fromOffset(190, 30)
+		minimizeButton.Text = "+"
+		return
+	end
+
+	minimizeButton.Text = "-"
+
 	if hasPlatform then
-		frame.Size = UDim2.fromOffset(190, 362)
+		frame.Size = UDim2.fromOffset(190, 418)
 
 		controlsDivider.Visible = true
 		upButton.Visible = true
@@ -229,6 +300,8 @@ local function updatePanelLayout()
 		incrementDivider.Visible = true
 		incrementBox.Visible = true
 		applyButton.Visible = true
+
+		speedPersistButton.Visible = true
 
 		controlsDivider.Position = UDim2.fromOffset(12, 8)
 		upButton.Position = UDim2.fromOffset(12, 32)
@@ -241,12 +314,13 @@ local function updatePanelLayout()
 		speedDivider.Position = UDim2.fromOffset(12, 183)
 		playerSpeedBox.Position = UDim2.fromOffset(12, 208)
 		playerSpeedApplyButton.Position = UDim2.fromOffset(12, 237)
+		speedPersistButton.Position = UDim2.fromOffset(12, 265)
 
-		noclipDivider.Position = UDim2.fromOffset(12, 267)
-		noclipButton.Position = UDim2.fromOffset(12, 292)
-		flyButton.Position = UDim2.fromOffset(12, 326)
+		noclipDivider.Position = UDim2.fromOffset(12, 296)
+		noclipButton.Position = UDim2.fromOffset(12, 321)
+		flyButton.Position = UDim2.fromOffset(12, 355)
 	else
-		frame.Size = UDim2.fromOffset(190, 190)
+		frame.Size = UDim2.fromOffset(190, 238)
 
 		controlsDivider.Visible = false
 		upButton.Visible = false
@@ -259,12 +333,21 @@ local function updatePanelLayout()
 		speedDivider.Position = UDim2.fromOffset(12, 8)
 		playerSpeedBox.Position = UDim2.fromOffset(12, 33)
 		playerSpeedApplyButton.Position = UDim2.fromOffset(12, 62)
+		speedPersistButton.Position = UDim2.fromOffset(12, 91)
 
-		noclipDivider.Position = UDim2.fromOffset(12, 92)
-		noclipButton.Position = UDim2.fromOffset(12, 117)
-		flyButton.Position = UDim2.fromOffset(12, 151)
+		noclipDivider.Position = UDim2.fromOffset(12, 122)
+		noclipButton.Position = UDim2.fromOffset(12, 147)
+		flyButton.Position = UDim2.fromOffset(12, 181)
+
+		speedPersistButton.Visible = true
 	end
 end
+
+-- Minimize / restore
+minimizeButton.Activated:Connect(function()
+	minimized = not minimized
+	updatePanelLayout()
+end)
 
 -- Dragging
 local dragging = false
@@ -272,15 +355,13 @@ local dragTouch
 local dragStart
 local frameStart
 
-controlsDivider.Active = true
-
-controlsDivider.InputBegan:Connect(function(input)
+titleBar.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		dragging = true
 		dragTouch = nil
 		dragStart = input.Position
 		frameStart = frame.Position
-	elseif input.UserInputType == Enum.UserInputType.Touch and not dragTouch then
+	elseif input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
 		dragTouch = input
 		dragStart = input.Position
@@ -439,6 +520,31 @@ noclipButton.Activated:Connect(function()
 	setNoclip(not noclipEnabled)
 end)
 
+-- Speed persistence toggle
+local function updateSpeedPersistButton()
+	if speedPersistEnabled then
+		speedPersistButton.Text = "Persist Speed: ON"
+		speedPersistButton.BackgroundColor3 =
+			Color3.fromRGB(55, 145, 95)
+	else
+		speedPersistButton.Text = "Persist Speed: OFF"
+		speedPersistButton.BackgroundColor3 =
+			Color3.fromRGB(67, 105, 170)
+	end
+end
+
+speedPersistButton.Activated:Connect(function()
+	speedPersistEnabled = not speedPersistEnabled
+
+	if speedPersistEnabled and humanoid and humanoid.Parent then
+		humanoid.WalkSpeed = playerSpeed
+	end
+
+	updateSpeedPersistButton()
+end)
+
+updateSpeedPersistButton()
+
 -- Platform
 local function removePlatform()
 	local oldPlatform = platform
@@ -545,8 +651,12 @@ local function setupCharacter(newCharacter)
 
 	isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
 
-	playerSpeed = humanoid.WalkSpeed
+	-- Reapply selected speed on respawn
+	humanoid.WalkSpeed = playerSpeed
 	playerSpeedBox.Text = tostring(playerSpeed)
+
+	-- Update the current noclip state and visuals
+	setNoclip(noclipEnabled)
 
 	descendantConnection = character.DescendantAdded:Connect(function(descendant)
 		if noclipEnabled then
@@ -558,12 +668,6 @@ local function setupCharacter(newCharacter)
 			end)
 		end
 	end)
-
-	if noclipEnabled then
-		for _, descendant in ipairs(character:GetDescendants()) do
-			applyNoclipToPart(descendant)
-		end
-	end
 
 	if flying then
 		createPlatform()
@@ -593,26 +697,29 @@ player.CharacterRemoving:Connect(function(oldCharacter)
 	table.clear(activeMouseButtons)
 
 	restoreCharacterCollisions(oldCharacter)
-	removePlatform()
 
-	if jumpConnection then
-		jumpConnection:Disconnect()
-		jumpConnection = nil
+	if oldCharacter == character then
+		removePlatform()
+
+		if jumpConnection then
+			jumpConnection:Disconnect()
+			jumpConnection = nil
+		end
+
+		if stateConnection then
+			stateConnection:Disconnect()
+			stateConnection = nil
+		end
+
+		if descendantConnection then
+			descendantConnection:Disconnect()
+			descendantConnection = nil
+		end
+
+		rootPart = nil
+		humanoid = nil
+		character = nil
 	end
-
-	if stateConnection then
-		stateConnection:Disconnect()
-		stateConnection = nil
-	end
-
-	if descendantConnection then
-		descendantConnection:Disconnect()
-		descendantConnection = nil
-	end
-
-	rootPart = nil
-	humanoid = nil
-	character = nil
 
 	updatePanelLayout()
 end)
@@ -768,8 +875,17 @@ flyButton.Activated:Connect(function()
 	updatePanelLayout()
 end)
 
--- Movement and noclip enforcement
+-- Movement and enforcement
 RunService.Heartbeat:Connect(function(deltaTime)
+	-- Keep the selected speed applied while persistence is enabled.
+	-- This is client-side enforcement; server-authoritative movement
+	-- settings may still override the local Humanoid.
+	if speedPersistEnabled and humanoid and humanoid.Parent then
+		if humanoid.WalkSpeed ~= playerSpeed then
+			humanoid.WalkSpeed = playerSpeed
+		end
+	end
+
 	if noclipEnabled and character and character.Parent then
 		for _, descendant in ipairs(character:GetDescendants()) do
 			if descendant:IsA("BasePart") and descendant.CanCollide then
