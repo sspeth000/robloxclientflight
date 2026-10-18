@@ -1,4 +1,3 @@
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -735,7 +734,8 @@ end
 local function applyPlayerSpeed()
 	local value = tonumber(playerSpeedBox.Text)
 
-	if not value or value < 0 or value > 100 then
+	-- Require finite numeric input at least 0.1; no upper bound.
+	if value == nil or value ~= value or value == math.huge or value == -math.huge or value < 0.1 then
 		playerSpeedBox.Text = tostring(playerSpeed)
 		return
 	end
@@ -761,7 +761,8 @@ end)
 local function applyFlightSpeed()
 	local value = tonumber(incrementBox.Text)
 
-	if not value or value <= 0 or value > 100 then
+	-- Require finite numeric input at least 0.1; no upper bound.
+	if value == nil or value ~= value or value == math.huge or value == -math.huge or value < 0.1 then
 		incrementBox.Text = tostring(
 			moveSpeed / FLIGHT_SPEED_MULTIPLIER
 		)
