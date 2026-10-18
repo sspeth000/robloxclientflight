@@ -9,28 +9,34 @@ local playerGui = player:WaitForChild("PlayerGui")
 local PLATFORM_SIZE = Vector3.new(6, 1, 6)
 local PLATFORM_OFFSET = 3.5
 local FLIGHT_SPEED_MULTIPLIER = 10
-
--- Experimental R15 settings
 local R15_CLEARANCE = 0.1
 
 local moveSpeed = 20
 local playerSpeed = 16
 local direction = 0
 local flying = true
+local noclipEnabled = false
 
 local character
 local rootPart
 local humanoid
 local platform
 
--- R15 platform state
-local platformY = nil
-local r15BottomOffset = nil
+local isR15 = false
+local platformY
+local r15BottomOffset
 
 local activeTouches = {}
 local activeMouseButtons = {}
 
--- Remove an older copy of this GUI
+local jumpSnapshots = setmetatable({}, { __mode = "k" })
+local collisionSnapshots = setmetatable({}, { __mode = "k" })
+
+local jumpConnection
+local stateConnection
+local descendantConnection
+
+-- Remove older GUI
 local oldGui = playerGui:FindFirstChild("FreshFlightControls")
 if oldGui then
 	oldGui:Destroy()
@@ -44,8 +50,8 @@ gui.Parent = playerGui
 
 local frame = Instance.new("Frame")
 frame.Name = "Panel"
-frame.Size = UDim2.fromOffset(190, 308)
-frame.Position = UDim2.new(0.5, -95, 0.5, -154)
+frame.Size = UDim2.fromOffset(190, 362)
+frame.Position = UDim2.new(0.5, -95, 0.5, -181)
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 40)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -61,7 +67,6 @@ frameStroke.Thickness = 1
 frameStroke.Transparency = 0.35
 frameStroke.Parent = frame
 
--- Section divider helper
 local function makeDivider(text, y)
 	local divider = Instance.new("Frame")
 	divider.Name = text .. "Divider"
@@ -74,7 +79,6 @@ local function makeDivider(text, y)
 	local label = Instance.new("TextLabel")
 	label.Name = "SectionTitle"
 	label.Size = UDim2.new(1, 0, 0, 15)
-	label.Position = UDim2.fromOffset(0, 0)
 	label.BackgroundTransparency = 1
 	label.BorderSizePixel = 0
 	label.Text = text
@@ -92,14 +96,13 @@ local function makeDivider(text, y)
 	line.BorderSizePixel = 0
 	line.Parent = divider
 
-	local lineCorner = Instance.new("UICorner")
-	lineCorner.CornerRadius = UDim.new(1, 0)
-	lineCorner.Parent = line
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = line
 
 	return divider
 end
 
--- Button helper
 local function makeButton(name, text, position, size)
 	local button = Instance.new("TextButton")
 	button.Name = name
@@ -122,7 +125,28 @@ local function makeButton(name, text, position, size)
 	return button
 end
 
--- Controls section
+local function makeTextBox(name, placeholder, text, position)
+	local box = Instance.new("TextBox")
+	box.Name = name
+	box.Size = UDim2.fromOffset(166, 25)
+	box.Position = position
+	box.BackgroundColor3 = Color3.fromRGB(48, 51, 62)
+	box.TextColor3 = Color3.new(1, 1, 1)
+	box.PlaceholderText = placeholder
+	box.Text = text
+	box.TextSize = 14
+	box.ClearTextOnFocus = false
+	box.BorderSizePixel = 0
+	box.Parent = frame
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 5)
+	corner.Parent = box
+
+	return box
+end
+
+-- Controls
 local controlsDivider = makeDivider("Controls", 8)
 
 local upButton = makeButton(
@@ -139,25 +163,15 @@ local downButton = makeButton(
 	UDim2.fromOffset(166, 25)
 )
 
--- Increment section
+-- Flight increment
 makeDivider("Increment", 94)
 
-local incrementBox = Instance.new("TextBox")
-incrementBox.Name = "IncrementBox"
-incrementBox.Size = UDim2.fromOffset(166, 25)
-incrementBox.Position = UDim2.fromOffset(12, 119)
-incrementBox.BackgroundColor3 = Color3.fromRGB(48, 51, 62)
-incrementBox.TextColor3 = Color3.new(1, 1, 1)
-incrementBox.PlaceholderText = "Flight increment"
-incrementBox.Text = "2"
-incrementBox.TextSize = 14
-incrementBox.ClearTextOnFocus = false
-incrementBox.BorderSizePixel = 0
-incrementBox.Parent = frame
-
-local inputCorner = Instance.new("UICorner")
-inputCorner.CornerRadius = UDim.new(0, 5)
-inputCorner.Parent = incrementBox
+local incrementBox = makeTextBox(
+	"IncrementBox",
+	"Flight increment",
+	"2",
+	UDim2.fromOffset(12, 119)
+)
 
 local applyButton = makeButton(
 	"ApplyButton",
@@ -166,25 +180,15 @@ local applyButton = makeButton(
 	UDim2.fromOffset(166, 23)
 )
 
--- Speed section
+-- Speed
 makeDivider("Speed", 183)
 
-local playerSpeedBox = Instance.new("TextBox")
-playerSpeedBox.Name = "PlayerSpeedBox"
-playerSpeedBox.Size = UDim2.fromOffset(166, 25)
-playerSpeedBox.Position = UDim2.fromOffset(12, 208)
-playerSpeedBox.BackgroundColor3 = Color3.fromRGB(48, 51, 62)
-playerSpeedBox.TextColor3 = Color3.new(1, 1, 1)
-playerSpeedBox.PlaceholderText = "Player speed"
-playerSpeedBox.Text = tostring(playerSpeed)
-playerSpeedBox.TextSize = 14
-playerSpeedBox.ClearTextOnFocus = false
-playerSpeedBox.BorderSizePixel = 0
-playerSpeedBox.Parent = frame
-
-local playerSpeedCorner = Instance.new("UICorner")
-playerSpeedCorner.CornerRadius = UDim.new(0, 5)
-playerSpeedCorner.Parent = playerSpeedBox
+local playerSpeedBox = makeTextBox(
+	"PlayerSpeedBox",
+	"Player speed",
+	tostring(playerSpeed),
+	UDim2.fromOffset(12, 208)
+)
 
 local playerSpeedApplyButton = makeButton(
 	"PlayerSpeedApplyButton",
@@ -193,15 +197,25 @@ local playerSpeedApplyButton = makeButton(
 	UDim2.fromOffset(166, 23)
 )
 
+-- Noclip section
+makeDivider("Noclip", 267)
+
+local noclipButton = makeButton(
+	"NoclipButton",
+	"Noclip: OFF",
+	UDim2.fromOffset(12, 292),
+	UDim2.fromOffset(166, 26)
+)
+
 -- Fly / Unfly
 local flyButton = makeButton(
 	"FlyButton",
 	"Unfly",
-	UDim2.fromOffset(12, 267),
-	UDim2.fromOffset(166, 29)
+	UDim2.fromOffset(12, 326),
+	UDim2.fromOffset(166, 26)
 )
 
--- Dragging: use the Controls divider as the handle
+-- Dragging
 local dragging = false
 local dragTouch
 local dragStart
@@ -215,8 +229,7 @@ controlsDivider.InputBegan:Connect(function(input)
 		dragTouch = nil
 		dragStart = input.Position
 		frameStart = frame.Position
-	elseif input.UserInputType == Enum.UserInputType.Touch
-		and not dragTouch then
+	elseif input.UserInputType == Enum.UserInputType.Touch and not dragTouch then
 		dragging = true
 		dragTouch = input
 		dragStart = input.Position
@@ -255,7 +268,6 @@ end)
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		and not dragTouch then
-
 		dragging = false
 	elseif input == dragTouch then
 		dragging = false
@@ -263,25 +275,135 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Platform
-local function updateFlyButton()
-	flyButton.Text = flying and "Unfly" or "Fly"
+-- Jump settings
+local function disableJumping()
+	if not humanoid or not humanoid.Parent then
+		return
+	end
+
+	if not jumpSnapshots[humanoid] then
+		jumpSnapshots[humanoid] = {
+			JumpPower = humanoid.JumpPower,
+			JumpHeight = humanoid.JumpHeight,
+			JumpingEnabled = humanoid:GetStateEnabled(
+				Enum.HumanoidStateType.Jumping
+			),
+		}
+	end
+
+	humanoid.Jump = false
+	humanoid.JumpPower = 0
+	humanoid.JumpHeight = 0
+	humanoid:SetStateEnabled(
+		Enum.HumanoidStateType.Jumping,
+		false
+	)
 end
 
-local function removePlatform()
-	if platform then
-		platform:Destroy()
-		platform = nil
+local function restoreJumping(targetHumanoid)
+	if not targetHumanoid then
+		return
+	end
+
+	local saved = jumpSnapshots[targetHumanoid]
+	if not saved then
+		return
+	end
+
+	if targetHumanoid.Parent then
+		targetHumanoid.Jump = false
+		targetHumanoid.JumpPower = saved.JumpPower
+		targetHumanoid.JumpHeight = saved.JumpHeight
+
+		targetHumanoid:SetStateEnabled(
+			Enum.HumanoidStateType.Jumping,
+			saved.JumpingEnabled
+		)
+	end
+
+	jumpSnapshots[targetHumanoid] = nil
+end
+
+-- Noclip
+local function applyNoclipToPart(part)
+	if not noclipEnabled or not character then
+		return
+	end
+
+	if not part:IsA("BasePart") then
+		return
+	end
+
+	if not part:IsDescendantOf(character) then
+		return
+	end
+
+	if collisionSnapshots[part] == nil then
+		collisionSnapshots[part] = part.CanCollide
+	end
+
+	part.CanCollide = false
+end
+
+local function restoreCharacterCollisions(targetCharacter)
+	if not targetCharacter then
+		return
+	end
+
+	for _, descendant in ipairs(targetCharacter:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			local saved = collisionSnapshots[descendant]
+
+			if saved ~= nil then
+				descendant.CanCollide = saved
+				collisionSnapshots[descendant] = nil
+			end
+		end
 	end
 end
 
--- Check the character rig type
-local function isR15Character()
-	return humanoid
-		and humanoid.RigType == Enum.HumanoidRigType.R15
+local function setNoclip(enabled)
+	noclipEnabled = enabled
+
+	if noclipEnabled then
+		if character then
+			for _, descendant in ipairs(character:GetDescendants()) do
+				applyNoclipToPart(descendant)
+			end
+		end
+
+		noclipButton.Text = "Noclip: ON"
+		noclipButton.BackgroundColor3 = Color3.fromRGB(55, 145, 95)
+	else
+		if character then
+			restoreCharacterCollisions(character)
+		end
+
+		noclipButton.Text = "Noclip: OFF"
+		noclipButton.BackgroundColor3 = Color3.fromRGB(67, 105, 170)
+	end
 end
 
--- Create platform
+noclipButton.Activated:Connect(function()
+	setNoclip(not noclipEnabled)
+end)
+
+-- Platform
+local function removePlatform()
+	local oldPlatform = platform
+	platform = nil
+
+	if oldPlatform then
+		oldPlatform:Destroy()
+	end
+
+	platformY = nil
+	r15BottomOffset = nil
+
+	-- Restore jump settings when the platform is removed
+	restoreJumping(humanoid)
+end
+
 local function createPlatform()
 	if not flying or not rootPart or not rootPart.Parent then
 		return
@@ -289,10 +411,15 @@ local function createPlatform()
 
 	removePlatform()
 
-	local isR15 = isR15Character()
+	if not humanoid or not humanoid.Parent then
+		return
+	end
 
-	if isR15 then
-		-- Measure the character's bounding box relative to its root.
+	isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+
+	local startPosition
+
+	if isR15 and character then
 		local boxCFrame, boxSize = character:GetBoundingBox()
 
 		r15BottomOffset =
@@ -300,15 +427,21 @@ local function createPlatform()
 			- boxSize.Y / 2
 			- rootPart.Position.Y
 
-		-- Initialize the platform beneath the character.
 		platformY =
 			rootPart.Position.Y
 			+ r15BottomOffset
 			- PLATFORM_SIZE.Y / 2
 			- R15_CLEARANCE
+
+		startPosition = Vector3.new(
+			rootPart.Position.X,
+			platformY,
+			rootPart.Position.Z
+		)
 	else
-		platformY = nil
-		r15BottomOffset = nil
+		startPosition = (
+			rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
+		).Position
 	end
 
 	platform = Instance.new("Part")
@@ -321,23 +454,121 @@ local function createPlatform()
 	platform.Material = Enum.Material.SmoothPlastic
 	platform.Color = Color3.fromRGB(255, 255, 255)
 	platform.Transparency = 0.5
-
-	if isR15 then
-		platform.Position = Vector3.new(
-			rootPart.Position.X,
-			platformY,
-			rootPart.Position.Z
-		)
-	else
-		-- Keep the original R6 positioning.
-		platform.CFrame =
-			rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
-	end
-
+	platform.Position = startPosition
 	platform.Parent = workspace
+
+	disableJumping()
 end
 
--- Apply player walking speed
+-- Character setup
+local function setupCharacter(newCharacter)
+	direction = 0
+	table.clear(activeTouches)
+	table.clear(activeMouseButtons)
+
+	if character then
+		restoreCharacterCollisions(character)
+	end
+
+	removePlatform()
+
+	if jumpConnection then
+		jumpConnection:Disconnect()
+		jumpConnection = nil
+	end
+
+	if stateConnection then
+		stateConnection:Disconnect()
+		stateConnection = nil
+	end
+
+	if descendantConnection then
+		descendantConnection:Disconnect()
+		descendantConnection = nil
+	end
+
+	character = newCharacter
+	rootPart = character:WaitForChild("HumanoidRootPart")
+	humanoid = character:WaitForChild("Humanoid")
+
+	isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
+
+	playerSpeed = humanoid.WalkSpeed
+	playerSpeedBox.Text = tostring(playerSpeed)
+
+	-- Handle newly added character parts while noclip is enabled
+	descendantConnection = character.DescendantAdded:Connect(function(descendant)
+		if noclipEnabled then
+			task.defer(function()
+				if descendant.Parent and character
+					and descendant:IsDescendantOf(character) then
+					applyNoclipToPart(descendant)
+				end
+			end)
+		end
+	end)
+
+	-- Reapply noclip to the new character if it was already enabled
+	if noclipEnabled then
+		for _, descendant in ipairs(character:GetDescendants()) do
+			applyNoclipToPart(descendant)
+		end
+	end
+
+	if flying then
+		createPlatform()
+	end
+
+	-- Jump protection only applies while the platform exists
+	jumpConnection = humanoid:GetPropertyChangedSignal("Jump"):Connect(function()
+		if platform and platform.Parent then
+			humanoid.Jump = false
+		end
+	end)
+
+	stateConnection = humanoid.StateChanged:Connect(function(_, newState)
+		if platform and platform.Parent
+			and newState == Enum.HumanoidStateType.Jumping then
+			disableJumping()
+		end
+	end)
+end
+
+player.CharacterAdded:Connect(setupCharacter)
+
+player.CharacterRemoving:Connect(function(oldCharacter)
+	direction = 0
+	table.clear(activeTouches)
+	table.clear(activeMouseButtons)
+
+	restoreCharacterCollisions(oldCharacter)
+	removePlatform()
+
+	if jumpConnection then
+		jumpConnection:Disconnect()
+		jumpConnection = nil
+	end
+
+	if stateConnection then
+		stateConnection:Disconnect()
+		stateConnection = nil
+	end
+
+	if descendantConnection then
+		descendantConnection:Disconnect()
+		descendantConnection = nil
+	end
+
+	rootPart = nil
+	humanoid = nil
+	character = nil
+end)
+
+if player.Character then
+	task.spawn(setupCharacter, player.Character)
+end
+
+-- Player speed
 local function applyPlayerSpeed()
 	local value = tonumber(playerSpeedBox.Text)
 
@@ -363,55 +594,14 @@ playerSpeedBox.FocusLost:Connect(function(enterPressed)
 	end
 end)
 
--- Character setup
-local function setupCharacter(newCharacter)
-	direction = 0
-	table.clear(activeTouches)
-	table.clear(activeMouseButtons)
-
-	removePlatform()
-
-	character = newCharacter
-	rootPart = character:WaitForChild("HumanoidRootPart")
-	humanoid = character:WaitForChild("Humanoid")
-
-	-- Get the current walking speed.
-	playerSpeed = humanoid.WalkSpeed
-	playerSpeedBox.Text = tostring(playerSpeed)
-
-	if flying then
-		createPlatform()
-	end
-end
-
-player.CharacterAdded:Connect(setupCharacter)
-
-player.CharacterRemoving:Connect(function()
-	direction = 0
-	table.clear(activeTouches)
-	table.clear(activeMouseButtons)
-
-	removePlatform()
-
-	rootPart = nil
-	humanoid = nil
-	character = nil
-
-	platformY = nil
-	r15BottomOffset = nil
-end)
-
-if player.Character then
-	task.spawn(setupCharacter, player.Character)
-end
-
--- Apply vertical flight speed
+-- Flight increment
 local function applyFlightSpeed()
 	local value = tonumber(incrementBox.Text)
 
 	if not value or value <= 0 or value > 100 then
-		incrementBox.Text =
-			tostring(moveSpeed / FLIGHT_SPEED_MULTIPLIER)
+		incrementBox.Text = tostring(
+			moveSpeed / FLIGHT_SPEED_MULTIPLIER
+		)
 		return
 	end
 
@@ -427,7 +617,7 @@ incrementBox.FocusLost:Connect(function(enterPressed)
 	end
 end)
 
--- Direction tracking for multitouch
+-- Multitouch direction controls
 local function refreshDirection()
 	if not flying then
 		direction = 0
@@ -518,46 +708,68 @@ flyButton.Activated:Connect(function()
 		removePlatform()
 	end
 
-	updateFlyButton()
+	flyButton.Text = flying and "Unfly" or "Fly"
 end)
 
--- Movement
+-- Movement and noclip enforcement
 RunService.Heartbeat:Connect(function(deltaTime)
+	-- Keep character parts non-collidable while noclip is enabled
+	if noclipEnabled and character and character.Parent then
+		for _, descendant in ipairs(character:GetDescendants()) do
+			if descendant:IsA("BasePart") and descendant.CanCollide then
+				applyNoclipToPart(descendant)
+			end
+		end
+	end
+
 	if not rootPart or not rootPart.Parent then
 		return
 	end
 
-	if not flying or not platform or not platform.Parent then
+	-- Disable jumping only while the flight platform exists
+	if platform and platform.Parent and humanoid and humanoid.Parent then
+		if humanoid.JumpPower ~= 0
+			or humanoid.JumpHeight ~= 0
+			or humanoid:GetStateEnabled(
+				Enum.HumanoidStateType.Jumping
+			) then
+			disableJumping()
+		end
+
+		humanoid.Jump = false
+	end
+
+	if not (flying and platform and platform.Parent) then
 		return
 	end
 
-	if isR15Character() and platformY and r15BottomOffset then
-		-- Experimental R15 platform-first movement.
+	if isR15 and platformY ~= nil and r15BottomOffset ~= nil then
+		-- R15 platform-first movement
 		if direction ~= 0 then
 			platformY += direction * moveSpeed * deltaTime
 		end
 
-		-- Track the character horizontally.
 		platform.Position = Vector3.new(
 			rootPart.Position.X,
 			platformY,
 			rootPart.Position.Z
 		)
 
-		-- Keep the measured bottom of the avatar above the platform.
 		local targetRootY =
 			platformY
 			+ PLATFORM_SIZE.Y / 2
 			+ R15_CLEARANCE
 			- r15BottomOffset
 
-		rootPart.CFrame = rootPart.CFrame + Vector3.new(
-			0,
-			targetRootY - rootPart.Position.Y,
-			0
-		)
+		local currentPosition = rootPart.Position
+
+		rootPart.CFrame = CFrame.new(
+			currentPosition.X,
+			targetRootY,
+			currentPosition.Z
+		) * rootPart.CFrame.Rotation
 	else
-		-- Original R6 movement.
+		-- Preserve R6 movement
 		if direction ~= 0 then
 			local deltaY = direction * moveSpeed * deltaTime
 
@@ -569,5 +781,3 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
 	end
 end)
-
-updateFlyButton()
