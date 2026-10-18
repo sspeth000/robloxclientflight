@@ -10,6 +10,9 @@ local PLATFORM_SIZE = Vector3.new(6, 1, 6)
 local PLATFORM_OFFSET = 3.5
 local FLIGHT_SPEED_MULTIPLIER = 10
 
+-- Experimental R15 settings
+local R15_CLEARANCE = 0.1
+
 local moveSpeed = 20
 local playerSpeed = 16
 local direction = 0
@@ -19,6 +22,10 @@ local character
 local rootPart
 local humanoid
 local platform
+
+-- R15 platform state
+local platformY = nil
+local r15BottomOffset = nil
 
 local activeTouches = {}
 local activeMouseButtons = {}
@@ -55,7 +62,6 @@ frameStroke.Transparency = 0.35
 frameStroke.Parent = frame
 
 -- Section divider helper
--- Titles sit above rounded blue accent lines
 local function makeDivider(text, y)
 	local divider = Instance.new("Frame")
 	divider.Name = text .. "Divider"
@@ -187,7 +193,7 @@ local playerSpeedApplyButton = makeButton(
 	UDim2.fromOffset(166, 23)
 )
 
--- Fly / Unfly at the bottom
+-- Fly / Unfly
 local flyButton = makeButton(
 	"FlyButton",
 	"Unfly",
@@ -209,7 +215,8 @@ controlsDivider.InputBegan:Connect(function(input)
 		dragTouch = nil
 		dragStart = input.Position
 		frameStart = frame.Position
-	elseif input.UserInputType == Enum.UserInputType.Touch and not dragTouch then
+	elseif input.UserInputType == Enum.UserInputType.Touch
+		and not dragTouch then
 		dragging = true
 		dragTouch = input
 		dragStart = input.Position
@@ -222,8 +229,11 @@ UserInputService.InputChanged:Connect(function(input)
 		return
 	end
 
-	if input.UserInputType == Enum.UserInputType.MouseMovement and not dragTouch then
+	if input.UserInputType == Enum.UserInputType.MouseMovement
+		and not dragTouch then
+
 		local delta = input.Position - dragStart
+
 		frame.Position = UDim2.new(
 			frameStart.X.Scale,
 			frameStart.X.Offset + delta.X,
@@ -232,6 +242,7 @@ UserInputService.InputChanged:Connect(function(input)
 		)
 	elseif input == dragTouch then
 		local delta = input.Position - dragStart
+
 		frame.Position = UDim2.new(
 			frameStart.X.Scale,
 			frameStart.X.Offset + delta.X,
@@ -242,7 +253,9 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 and not dragTouch then
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		and not dragTouch then
+
 		dragging = false
 	elseif input == dragTouch then
 		dragging = false
@@ -262,12 +275,41 @@ local function removePlatform()
 	end
 end
 
+-- Check the character rig type
+local function isR15Character()
+	return humanoid
+		and humanoid.RigType == Enum.HumanoidRigType.R15
+end
+
+-- Create platform
 local function createPlatform()
 	if not flying or not rootPart or not rootPart.Parent then
 		return
 	end
 
 	removePlatform()
+
+	local isR15 = isR15Character()
+
+	if isR15 then
+		-- Measure the character's bounding box relative to its root.
+		local boxCFrame, boxSize = character:GetBoundingBox()
+
+		r15BottomOffset =
+			boxCFrame.Position.Y
+			- boxSize.Y / 2
+			- rootPart.Position.Y
+
+		-- Initialize the platform beneath the character.
+		platformY =
+			rootPart.Position.Y
+			+ r15BottomOffset
+			- PLATFORM_SIZE.Y / 2
+			- R15_CLEARANCE
+	else
+		platformY = nil
+		r15BottomOffset = nil
+	end
 
 	platform = Instance.new("Part")
 	platform.Name = "FlightPlatform"
@@ -279,7 +321,19 @@ local function createPlatform()
 	platform.Material = Enum.Material.SmoothPlastic
 	platform.Color = Color3.fromRGB(255, 255, 255)
 	platform.Transparency = 0.5
-	platform.CFrame = rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
+
+	if isR15 then
+		platform.Position = Vector3.new(
+			rootPart.Position.X,
+			platformY,
+			rootPart.Position.Z
+		)
+	else
+		-- Keep the original R6 positioning.
+		platform.CFrame =
+			rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
+	end
+
 	platform.Parent = workspace
 end
 
@@ -321,7 +375,7 @@ local function setupCharacter(newCharacter)
 	rootPart = character:WaitForChild("HumanoidRootPart")
 	humanoid = character:WaitForChild("Humanoid")
 
-	-- Fetch the character's actual current speed
+	-- Get the current walking speed.
 	playerSpeed = humanoid.WalkSpeed
 	playerSpeedBox.Text = tostring(playerSpeed)
 
@@ -342,6 +396,9 @@ player.CharacterRemoving:Connect(function()
 	rootPart = nil
 	humanoid = nil
 	character = nil
+
+	platformY = nil
+	r15BottomOffset = nil
 end)
 
 if player.Character then
@@ -353,7 +410,8 @@ local function applyFlightSpeed()
 	local value = tonumber(incrementBox.Text)
 
 	if not value or value <= 0 or value > 100 then
-		incrementBox.Text = tostring(moveSpeed / FLIGHT_SPEED_MULTIPLIER)
+		incrementBox.Text =
+			tostring(moveSpeed / FLIGHT_SPEED_MULTIPLIER)
 		return
 	end
 
@@ -469,13 +527,46 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 
-	if flying and platform and platform.Parent then
+	if not flying or not platform or not platform.Parent then
+		return
+	end
+
+	if isR15Character() and platformY and r15BottomOffset then
+		-- Experimental R15 platform-first movement.
 		if direction ~= 0 then
-			local deltaY = direction * moveSpeed * deltaTime
-			rootPart.CFrame = rootPart.CFrame + Vector3.new(0, deltaY, 0)
+			platformY += direction * moveSpeed * deltaTime
 		end
 
-		platform.CFrame = rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
+		-- Track the character horizontally.
+		platform.Position = Vector3.new(
+			rootPart.Position.X,
+			platformY,
+			rootPart.Position.Z
+		)
+
+		-- Keep the measured bottom of the avatar above the platform.
+		local targetRootY =
+			platformY
+			+ PLATFORM_SIZE.Y / 2
+			+ R15_CLEARANCE
+			- r15BottomOffset
+
+		rootPart.CFrame = rootPart.CFrame + Vector3.new(
+			0,
+			targetRootY - rootPart.Position.Y,
+			0
+		)
+	else
+		-- Original R6 movement.
+		if direction ~= 0 then
+			local deltaY = direction * moveSpeed * deltaTime
+
+			rootPart.CFrame =
+				rootPart.CFrame + Vector3.new(0, deltaY, 0)
+		end
+
+		platform.CFrame =
+			rootPart.CFrame * CFrame.new(0, -PLATFORM_OFFSET, 0)
 	end
 end)
 
