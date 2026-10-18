@@ -1,4 +1,3 @@
-
 -- FreshFlightControls
 -- PC-native Roblox Studio LocalScript
 --
@@ -393,7 +392,7 @@ UserInputService.WindowFocusReleased:Connect(function()
 	direction = 0
 end)
 
--- Number validation: finite and nonnegative, with no arbitrary upper limit.
+-- Number validation: finite and at least 0.1, with no arbitrary upper limit.
 local function parseNonnegativeNumber(text)
 	local value = tonumber(text)
 
@@ -405,7 +404,7 @@ local function parseNonnegativeNumber(text)
 		return nil
 	end
 
-	if value < 0 then
+	if value < 0.1 then
 		return nil
 	end
 
