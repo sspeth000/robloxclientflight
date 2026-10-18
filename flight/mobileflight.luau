@@ -42,7 +42,7 @@ if oldGui then
 	oldGui:Destroy()
 end
 
--- GUI
+-- Main GUI
 local gui = Instance.new("ScreenGui")
 gui.Name = "FreshFlightControls"
 gui.ResetOnSpawn = false
@@ -164,7 +164,7 @@ local downButton = makeButton(
 )
 
 -- Flight increment
-makeDivider("Increment", 94)
+local incrementDivider = makeDivider("Increment", 94)
 
 local incrementBox = makeTextBox(
 	"IncrementBox",
@@ -181,7 +181,7 @@ local applyButton = makeButton(
 )
 
 -- Speed
-makeDivider("Speed", 183)
+local speedDivider = makeDivider("Speed", 183)
 
 local playerSpeedBox = makeTextBox(
 	"PlayerSpeedBox",
@@ -197,8 +197,8 @@ local playerSpeedApplyButton = makeButton(
 	UDim2.fromOffset(166, 23)
 )
 
--- Noclip section
-makeDivider("Noclip", 267)
+-- Noclip
+local noclipDivider = makeDivider("Noclip", 267)
 
 local noclipButton = makeButton(
 	"NoclipButton",
@@ -214,6 +214,57 @@ local flyButton = makeButton(
 	UDim2.fromOffset(12, 326),
 	UDim2.fromOffset(166, 26)
 )
+
+-- Automatically resize the panel based on platform existence
+local function updatePanelLayout()
+	local hasPlatform = platform ~= nil and platform.Parent ~= nil
+
+	if hasPlatform then
+		frame.Size = UDim2.fromOffset(190, 362)
+
+		controlsDivider.Visible = true
+		upButton.Visible = true
+		downButton.Visible = true
+
+		incrementDivider.Visible = true
+		incrementBox.Visible = true
+		applyButton.Visible = true
+
+		controlsDivider.Position = UDim2.fromOffset(12, 8)
+		upButton.Position = UDim2.fromOffset(12, 32)
+		downButton.Position = UDim2.fromOffset(12, 62)
+
+		incrementDivider.Position = UDim2.fromOffset(12, 94)
+		incrementBox.Position = UDim2.fromOffset(12, 119)
+		applyButton.Position = UDim2.fromOffset(12, 148)
+
+		speedDivider.Position = UDim2.fromOffset(12, 183)
+		playerSpeedBox.Position = UDim2.fromOffset(12, 208)
+		playerSpeedApplyButton.Position = UDim2.fromOffset(12, 237)
+
+		noclipDivider.Position = UDim2.fromOffset(12, 267)
+		noclipButton.Position = UDim2.fromOffset(12, 292)
+		flyButton.Position = UDim2.fromOffset(12, 326)
+	else
+		frame.Size = UDim2.fromOffset(190, 190)
+
+		controlsDivider.Visible = false
+		upButton.Visible = false
+		downButton.Visible = false
+
+		incrementDivider.Visible = false
+		incrementBox.Visible = false
+		applyButton.Visible = false
+
+		speedDivider.Position = UDim2.fromOffset(12, 8)
+		playerSpeedBox.Position = UDim2.fromOffset(12, 33)
+		playerSpeedApplyButton.Position = UDim2.fromOffset(12, 62)
+
+		noclipDivider.Position = UDim2.fromOffset(12, 92)
+		noclipButton.Position = UDim2.fromOffset(12, 117)
+		flyButton.Position = UDim2.fromOffset(12, 151)
+	end
+end
 
 -- Dragging
 local dragging = false
@@ -400,8 +451,8 @@ local function removePlatform()
 	platformY = nil
 	r15BottomOffset = nil
 
-	-- Restore jump settings when the platform is removed
 	restoreJumping(humanoid)
+	updatePanelLayout()
 end
 
 local function createPlatform()
@@ -458,6 +509,7 @@ local function createPlatform()
 	platform.Parent = workspace
 
 	disableJumping()
+	updatePanelLayout()
 end
 
 -- Character setup
@@ -496,7 +548,6 @@ local function setupCharacter(newCharacter)
 	playerSpeed = humanoid.WalkSpeed
 	playerSpeedBox.Text = tostring(playerSpeed)
 
-	-- Handle newly added character parts while noclip is enabled
 	descendantConnection = character.DescendantAdded:Connect(function(descendant)
 		if noclipEnabled then
 			task.defer(function()
@@ -508,7 +559,6 @@ local function setupCharacter(newCharacter)
 		end
 	end)
 
-	-- Reapply noclip to the new character if it was already enabled
 	if noclipEnabled then
 		for _, descendant in ipairs(character:GetDescendants()) do
 			applyNoclipToPart(descendant)
@@ -517,9 +567,10 @@ local function setupCharacter(newCharacter)
 
 	if flying then
 		createPlatform()
+	else
+		updatePanelLayout()
 	end
 
-	-- Jump protection only applies while the platform exists
 	jumpConnection = humanoid:GetPropertyChangedSignal("Jump"):Connect(function()
 		if platform and platform.Parent then
 			humanoid.Jump = false
@@ -562,7 +613,12 @@ player.CharacterRemoving:Connect(function(oldCharacter)
 	rootPart = nil
 	humanoid = nil
 	character = nil
+
+	updatePanelLayout()
 end)
+
+-- Initial layout
+updatePanelLayout()
 
 if player.Character then
 	task.spawn(setupCharacter, player.Character)
@@ -709,11 +765,11 @@ flyButton.Activated:Connect(function()
 	end
 
 	flyButton.Text = flying and "Unfly" or "Fly"
+	updatePanelLayout()
 end)
 
 -- Movement and noclip enforcement
 RunService.Heartbeat:Connect(function(deltaTime)
-	-- Keep character parts non-collidable while noclip is enabled
 	if noclipEnabled and character and character.Parent then
 		for _, descendant in ipairs(character:GetDescendants()) do
 			if descendant:IsA("BasePart") and descendant.CanCollide then
@@ -726,7 +782,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 
-	-- Disable jumping only while the flight platform exists
 	if platform and platform.Parent and humanoid and humanoid.Parent then
 		if humanoid.JumpPower ~= 0
 			or humanoid.JumpHeight ~= 0
@@ -744,7 +799,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	end
 
 	if isR15 and platformY ~= nil and r15BottomOffset ~= nil then
-		-- R15 platform-first movement
 		if direction ~= 0 then
 			platformY += direction * moveSpeed * deltaTime
 		end
@@ -769,7 +823,6 @@ RunService.Heartbeat:Connect(function(deltaTime)
 			currentPosition.Z
 		) * rootPart.CFrame.Rotation
 	else
-		-- Preserve R6 movement
 		if direction ~= 0 then
 			local deltaY = direction * moveSpeed * deltaTime
 
